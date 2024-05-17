@@ -33,7 +33,9 @@ with st.sidebar:
     top_p = st.sidebar.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
 
 def get_tokenizer():
-    return AutoTokenizer.from_pretrained("huggyllama/llama-7b")
+    return AutoTokenizer.from_pretrained(
+    "Snowflake/snowflake-arctic-instruct",
+    trust_remote_code=True)
 
 def get_num_tokens(prompt):
     tokenizer = get_tokenizer()
@@ -57,21 +59,38 @@ def get_response(prompt):
     # return co.client(message = prompt)
 
 # TODO: new function to generate suggestions by Artic?
-def render_suggestions():
+def get_suggestions(header):
+    prompt = '''Generate a list of prompts for creating data visualizations from CSV files.
+                            Each prompt should specify the type of data to be visualized, the key metrics 
+                            or attributes involved, and the recommended types of visualizations to use. 
+                            It may include diverse categories such as {header}. Return a list (with no variable name) of strings in python only.'''
+    suggestions = ''
+    for event in replicate.stream("snowflake/snowflake-arctic-instruct",
+                        input={"prompt": prompt,
+                                "prompt_template": "<|im_start|>system\nYou're a helpful assistant<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n\n<|im_start|>assistant\n",
+                                "temperature": temperature,
+                                "top_p": top_p,
+                                }):
+        suggestions += str(event)
+    return suggestions.strip()
+
+def render_suggestions(header):
     def set_query(query):
         st.session_state.suggestion = query
-
-    suggestions = [
+    local_vars = {}
+    # suggestions = [
         
-        "Compare Electric Vehicle Types in the data",
-        "Market Trends by Make and Model",
-        "Electric Range of different models and makes",
-    ]
-
+    #     "Compare Electric Vehicle Types in the data",
+    #     "Market Trends by Make and Model",
+    #     "Electric Range of different models and makes",
+    # ]
+    code = get_suggestions(header).strip()
+    exec(f"suggestions = {code}", {}, local_vars)
+    suggestions = local_vars['suggestions'][:2]
     columns = st.columns(len(suggestions))
     for i, column in enumerate(columns):
         with column:
-            st.button(suggestions[i], on_click=set_query, args=[suggestions[i]])
+            st.button(suggestions[i], on_click=set_query, args=[suggestions[i]], key=f"suggestion_{i}")
 
 
 def render_query():
@@ -138,13 +157,12 @@ with col2:
 data = pd.read_csv('Electric_Vehicle_Population_Data.csv')
 
 df = pd.DataFrame(data)
-
+header = ', '.join(data.columns.tolist())
 st.dataframe(df.head(10))
 
-render_suggestions()
+render_suggestions(header)
 render_query()
 
-header = ', '.join(data.columns.tolist())
 if not user_query:
     st.stop()
 

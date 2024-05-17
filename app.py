@@ -1,23 +1,62 @@
 import streamlit as st
 import pandas as pd
-import cohere
+import os
+import replicate
+# import cohere
 # from langchain_cohere import ChatCohere
 # from langchain_core.prompts import ChatPromptTemplate
 # from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 # from langchain_core.output_parsers import StrOutputParser
 import plotly.express as px
+from transformers import AutoTokenizer
 
 st.title("Data Exploration with LLM")
 
-if "cohere_api" not in st.session_state:
-    st.session_state.cohere_api = st.secrets["cohere_api"]
+# if "cohere_api" not in st.session_state:
+#     st.session_state.cohere_api = st.secrets["cohere_api"]
     
-co = cohere.Client(st.session_state.cohere_api)
+# co = cohere.Client(st.session_state.cohere_api)
 
+with st.sidebar:
+    st.title('Snowflake Arctic Setting')
+    if 'REPLICATE_API_TOKEN' in st.secrets:
+        replicate_api = st.secrets['REPLICATE_API_TOKEN']
+    else:
+        replicate_api = st.text_input('Enter Replicate API token:', type='password')
+        if not (replicate_api.startswith('r8_') and len(replicate_api)==40):
+            st.warning('Please enter your Replicate API token.', icon='⚠️')
+            st.markdown("**Don't have an API token?** Head over to [Replicate](https://replicate.com) to sign up for one.")
+
+    os.environ['REPLICATE_API_TOKEN'] = replicate_api
+    st.subheader("Adjust model parameters")
+    temperature = st.sidebar.slider('temperature', min_value=0.01, max_value=5.0, value=0.3, step=0.01)
+    top_p = st.sidebar.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
+
+def get_tokenizer():
+    return AutoTokenizer.from_pretrained("ArcticTokenizer")
+
+def get_num_tokens(prompt):
+    tokenizer = get_tokenizer()
+    tokens = tokenizer.tokenize(prompt)
+    return len(tokens)
+
+# TODO: prompt engineering
 def get_response(prompt):
-    response = co.chat(message = prompt)
+    if get_num_tokens(prompt) >= 3072:
+        st.error("Conversation length too long. Please keep it under 3072 tokens.")
+        st.stop()
+    response = ''
+    for event in replicate.stream("snowflake/snowflake-arctic-embedded",
+                           input={"prompt": prompt,
+                                  "prompt_template": r"{prompt}",
+                                  "temperature": temperature,
+                                  "top_p": top_p,
+                                  }):
+        response += str(event)
     return response
+    # return co.client(message = prompt)
 
+# TODO: new function to generate suggestions by Artic?
 def render_suggestions():
     def set_query(query):
         st.session_state.suggestion = query
@@ -54,7 +93,7 @@ def get_query():
     st.session_state.user_query = ""
     return user_query
 
-def generate_visualization_code(query):
+def generate_visualization_code(query, header):
     question =  f"""
                 here is the code I have already: 
 
@@ -63,13 +102,13 @@ def generate_visualization_code(query):
                 import pandas as pd
                 import plotly.express as px
 
-                data = pd.read_csv('Electric_Vehicle_Population_Data.csv')
+                data = pd.read_csv(filename)
 
                 df = pd.DataFrame(data)
                 <<<
 
                 the schema of the data is as follows:
-                VIN (1-10),County,City,State,Postal Code,Model Year,Make,Model,Electric Vehicle Type,Clean Alternative Fuel Vehicle (CAFV) Eligibility,Electric Range,Base MSRP,Legislative District,DOL Vehicle ID,Vehicle Location,Electric Utility,2020 Census Tract
+               {header}
                 
                 write the code to visualize the data based on this insight:
                 {query}
@@ -102,14 +141,14 @@ render_query()
 data = pd.read_csv('Electric_Vehicle_Population_Data.csv')
 
 df = pd.DataFrame(data)
-
+header = ', '.join(data.columns.tolist())
 if not user_query:
     st.stop()
 
-viz_code = generate_visualization_code(user_query)
+viz_code = generate_visualization_code(user_query, header)
 
-
-f"{viz_code.text}"
-llm_code = f"{viz_code.text}"
+# add '.text. if using Cohere
+f"{viz_code}"
+llm_code = f"{viz_code}"
 llm_code = llm_code.strip('```python').strip('```').strip()
 exec(llm_code)

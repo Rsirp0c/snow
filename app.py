@@ -60,10 +60,7 @@ def get_response(prompt):
 
 # TODO: new function to generate suggestions by Artic?
 def get_suggestions(header):
-    prompt = '''Generate a list of prompts for creating data visualizations from CSV files.
-                            Each prompt should specify the type of data to be visualized, the key metrics 
-                            or attributes involved, and the recommended types of visualizations to use. 
-                            It may include diverse categories such as {header}. Return a list(with no variable name) of string in python'''
+    prompt = f'''Generate 2 prompts for creating data visualization code based on the data schema: {header}. Only return a Python String list of generated prompts as the following format: ['prompt1', 'prompt2']'''
     suggestions = ''
     for event in replicate.stream("snowflake/snowflake-arctic-instruct",
                         input={"prompt": prompt,
@@ -71,7 +68,6 @@ def get_suggestions(header):
                                 "temperature": temperature,
                                 "top_p": top_p,
                                 }):
-        print(str(event))
         suggestions += str(event)
     return suggestions
 
@@ -88,8 +84,8 @@ def render_suggestions(header):
     
     # Get suggestions and ensure they are in list format
     suggestions = get_suggestions(header)
-    prompts = suggestions.replace('\n', ' ').replace('  ', ' ').split('", "')
-    prompts = [prompt.strip().strip('["').strip('"]') for prompt in prompts][:2]
+    prompts = suggestions.replace('\n', ' ').replace('  ', ' ').replace('\', \'', '", "').split('", "')
+    prompts = [prompt.strip().strip('["').strip('"]').strip('"').strip('\'') for prompt in prompts][:2]
 
     columns = st.columns(2)
     for i, column in enumerate(columns):

@@ -19,7 +19,7 @@ st.title("Data Exploration with LLM")
 
 with st.sidebar:
     st.title('Snowflake Arctic Setting')
-    if 'REPLICATE_API_TOKEN' in st.secrets:
+    if st.secrets and 'REPLICATE_API_TOKEN' in st.secrets:
         replicate_api = st.secrets['REPLICATE_API_TOKEN']
     else:
         replicate_api = st.text_input('Enter Replicate API token:', type='password')
@@ -33,7 +33,7 @@ with st.sidebar:
     top_p = st.sidebar.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
 
 def get_tokenizer():
-    return AutoTokenizer.from_pretrained("ArcticTokenizer")
+    return AutoTokenizer.from_pretrained("huggyllama/llama-7b")
 
 def get_num_tokens(prompt):
     tokenizer = get_tokenizer()
@@ -46,9 +46,9 @@ def get_response(prompt):
         st.error("Conversation length too long. Please keep it under 3072 tokens.")
         st.stop()
     response = ''
-    for event in replicate.stream("snowflake/snowflake-arctic-embedded",
+    for event in replicate.stream("snowflake/snowflake-arctic-instruct",
                            input={"prompt": prompt,
-                                  "prompt_template": r"{prompt}",
+                                  "prompt_template": "<|im_start|>system\nYou're a helpful assistant<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n\n<|im_start|>assistant\n",
                                   "temperature": temperature,
                                   "top_p": top_p,
                                   }):
@@ -102,20 +102,19 @@ def generate_visualization_code(query, header):
                 import pandas as pd
                 import plotly.express as px
 
-                data = pd.read_csv(filename)
 
                 df = pd.DataFrame(data)
                 <<<
 
-                the schema of the data is as follows:
+                the schema of df is as follows, please use the exact column names to refer to the data:
                {header}
                 
-                write the code to visualize the data based on this insight:
+                use streamlit and plotly to visualize the data based on this insight:
                 {query}
 
-                only return the code I need to add upon my code
-                do not include any texts in the response, I need to execute the response as code
+                only return the code I need to add upon my code, and use the variable df to refer to the dataframe
                 """
+    print("question: ",question)
     code = get_response(question)
 
     return code
@@ -135,20 +134,30 @@ with col2:
         If you haven't uploaded a file, use the provided sample data.
         [Electric Vehicle Population Data](https://catalog.data.gov/dataset/electric-vehicle-population-data)
         '''
-render_suggestions()
-render_query()
 
 data = pd.read_csv('Electric_Vehicle_Population_Data.csv')
 
 df = pd.DataFrame(data)
+
+st.dataframe(df.head(10))
+
+render_suggestions()
+render_query()
+
 header = ', '.join(data.columns.tolist())
 if not user_query:
     st.stop()
 
 viz_code = generate_visualization_code(user_query, header)
+print(viz_code)
 
-# add '.text. if using Cohere
+start = viz_code.find("python") + len("python")
+end = viz_code.find("```", start)
+
+extracted_code = viz_code[start:end].strip()
+
 f"{viz_code}"
-llm_code = f"{viz_code}"
+
+llm_code = f"{extracted_code}"
 llm_code = llm_code.strip('```python').strip('```').strip()
 exec(llm_code)

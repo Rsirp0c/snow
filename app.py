@@ -34,7 +34,7 @@ with st.sidebar:
 
 def get_tokenizer():
     return AutoTokenizer.from_pretrained(
-    "Snowflake/snowflake-arctic-instruct",
+    'Snowflake/snowflake-arctic-embed-l',
     trust_remote_code=True)
 
 def get_num_tokens(prompt):
@@ -63,7 +63,7 @@ def get_suggestions(header):
     prompt = '''Generate a list of prompts for creating data visualizations from CSV files.
                             Each prompt should specify the type of data to be visualized, the key metrics 
                             or attributes involved, and the recommended types of visualizations to use. 
-                            It may include diverse categories such as {header}. Return a list (with no variable name) of strings in python only.'''
+                            It may include diverse categories such as {header}. Return a list(with no variable name) of string in python'''
     suggestions = ''
     for event in replicate.stream("snowflake/snowflake-arctic-instruct",
                         input={"prompt": prompt,
@@ -71,26 +71,30 @@ def get_suggestions(header):
                                 "temperature": temperature,
                                 "top_p": top_p,
                                 }):
+        print(str(event))
         suggestions += str(event)
-    return suggestions.strip()
+    return suggestions
 
 def render_suggestions(header):
     def set_query(query):
         st.session_state.suggestion = query
-    local_vars = {}
     # suggestions = [
         
     #     "Compare Electric Vehicle Types in the data",
     #     "Market Trends by Make and Model",
     #     "Electric Range of different models and makes",
     # ]
-    code = get_suggestions(header).strip()
-    exec(f"suggestions = {code}", {}, local_vars)
-    suggestions = local_vars['suggestions'][:2]
-    columns = st.columns(len(suggestions))
+    local_vars = {}
+    
+    # Get suggestions and ensure they are in list format
+    suggestions = get_suggestions(header)
+    prompts = suggestions.replace('\n', ' ').replace('  ', ' ').split('", "')
+    prompts = [prompt.strip().strip('["').strip('"]') for prompt in prompts][:2]
+
+    columns = st.columns(2)
     for i, column in enumerate(columns):
         with column:
-            st.button(suggestions[i], on_click=set_query, args=[suggestions[i]], key=f"suggestion_{i}")
+            st.button(prompts[i], on_click=set_query, args=[suggestions[i]], key=f"prompts_{i}")
 
 
 def render_query():

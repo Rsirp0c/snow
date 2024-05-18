@@ -60,7 +60,7 @@ def get_response(prompt):
 
 # TODO: new function to generate suggestions by Artic?
 def get_suggestions(header):
-    prompt = f'''Generate 2 prompts for creating data visualization code based on the data schema: {header}. Only return a Python String list of generated prompts as the following format: ['prompt1', 'prompt2']'''
+    prompt = f'''Generate 2 prompts for creating data visualization code based on the data schema: {header}. Only return a Python String list of generated prompts as the following format: ['prompt1', 'prompt2']. The space betwen each element of list shuld be one.'''
     suggestions = ''
     for event in replicate.stream("snowflake/snowflake-arctic-instruct",
                         input={"prompt": prompt,
@@ -84,7 +84,7 @@ def render_suggestions(header):
     
     # Get suggestions and ensure they are in list format
     suggestions = get_suggestions(header)
-    prompts = suggestions.replace('\n', ' ').replace('  ', ' ').replace('\', \'', '", "').split('", "')
+    prompts = suggestions.replace('\n', ' ').replace('  ', ' ').replace('\', \'', '", "').replace('","', '", "').replace('\',\'', '", "').split('", "')
     prompts = [prompt.strip().strip('["').strip('"]').strip('"').strip('\'') for prompt in prompts][:2]
 
     columns = st.columns(2)

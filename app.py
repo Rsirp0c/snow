@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+import time
 import replicate
 # import cohere
 # from langchain_cohere import ChatCohere
@@ -9,13 +10,6 @@ import replicate
 # from langchain_core.output_parsers import StrOutputParser
 import plotly.express as px
 from transformers import AutoTokenizer
-
-st.title("Data Exploration with LLM")
-
-# if "cohere_api" not in st.session_state:
-#     st.session_state.cohere_api = st.secrets["cohere_api"]
-    
-# co = cohere.Client(st.session_state.cohere_api)
 
 with st.sidebar:
     st.title('Snowflake Arctic Setting')
@@ -31,6 +25,9 @@ with st.sidebar:
     st.subheader("Adjust model parameters")
     temperature = st.sidebar.slider('temperature', min_value=0.01, max_value=5.0, value=0.3, step=0.01)
     top_p = st.sidebar.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
+
+    for element in st.session_state:
+        st.write(f"{element}: {st.session_state[element]}")
 
 def get_tokenizer():
     return AutoTokenizer.from_pretrained(
@@ -60,7 +57,11 @@ def get_response(prompt):
 
 # TODO: new function to generate suggestions by Artic?
 def get_suggestions(header):
-    prompt = f'''Generate 2 prompts for creating data visualization code based on the data schema: {header}. Only return a Python String list of generated prompts as the following format: ['prompt1', 'prompt2']. The space betwen each element of list shuld be one.'''
+    prompt = f'''
+            Generate 3 prompts for creating data visualization code based on the data schema: {header}. 
+            Only return a Python String list of generated prompts as the following format: ['prompt1', 'prompt2']. 
+            The space betwen each element of list shuld be one.
+            '''
     suggestions = ''
     for event in replicate.stream("snowflake/snowflake-arctic-instruct",
                         input={"prompt": prompt,
@@ -72,26 +73,34 @@ def get_suggestions(header):
     return suggestions
 
 def render_suggestions(header):
+
     def set_query(query):
         st.session_state.suggestion = query
-    # suggestions = [
-        
-    #     "Compare Electric Vehicle Types in the data",
-    #     "Market Trends by Make and Model",
-    #     "Electric Range of different models and makes",
-    # ]
-    local_vars = {}
-    
+
     # Get suggestions and ensure they are in list format
-    suggestions = get_suggestions(header)
-    prompts = suggestions.replace('\n', ' ').replace('  ', ' ').replace('\', \'', '", "').replace('","', '", "').replace('\',\'', '", "').split('", "')
-    prompts = [prompt.strip().strip('["').strip('"]').strip('"').strip('\'') for prompt in prompts][:2]
+    if st.session_state.render:
+        suggestions = get_suggestions(header)
+        prompts = suggestions.replace('\n', ' ').replace('  ', ' ').replace('\', \'', '", "').replace('","', '", "').replace('\',\'', '", "').split('", "')
+        prompts = [prompt.strip().strip('["').strip('"]').strip('"').strip('\'') for prompt in prompts][:3]
+        st.session_state.prompts = prompts 
+        st.session_state.render = False
+    else:
+        prompts = st.session_state.prompts
 
-    columns = st.columns(2)
-    for i, column in enumerate(columns):
-        with column:
-            st.button(prompts[i], on_click=set_query, args=[suggestions[i]], key=f"prompts_{i}")
+    with st.container(border=True):
+        "#### Suggestions by Snowflake Arctic 💡"
 
+        # columns = st.columns(3)
+        # for i, column in enumerate(columns):
+        #     with column:
+        #         st.button(prompts[i], on_click=set_query, args=[suggestions[i]], key=f"prompts_{i}")
+    
+        for i in range(3):
+            st.button(prompts[i],on_click=set_query, args=[prompts[i]], key=f"prompts_{i}", use_container_width=True)
+        if st.button("Refresh suggestions"):
+            st.session_state.render = True
+            st.rerun() 
+    
 
 def render_query():
     st.text_input(
@@ -103,14 +112,21 @@ def render_query():
 
 
 def get_query():
+    # Initialize session state variables
     if "suggestion" not in st.session_state:
         st.session_state.suggestion = None
     if "user_query" not in st.session_state:
         st.session_state.user_query = ""
+    if "prompts" not in st.session_state:
+        st.session_state.prompts = None
+    if "render" not in st.session_state:
+        st.session_state.render = True
+
     user_query = st.session_state.suggestion or st.session_state.user_query
     st.session_state.suggestion = None
     st.session_state.user_query = ""
     return user_query
+
 
 def generate_visualization_code(query, header):
     question =  f"""
@@ -121,9 +137,8 @@ def generate_visualization_code(query, header):
                 import pandas as pd
                 import plotly.express as px
 
-
-                df = pd.DataFrame(data)
-                <<<
+                # df is the dataframe,run operations on it
+                >>>
 
                 the schema of df is as follows, please use the exact column names to refer to the data:
                {header}
@@ -139,29 +154,44 @@ def generate_visualization_code(query, header):
     return code
 
 
+@st.cache_data(experimental_allow_widgets = True)
+def get_data():
+    # st.cache_data.clear()
+    col1,col2 = st.columns([1,1])
+    with col1:
+        raw_data = st.file_uploader("Upload CSV file", type="csv",label_visibility="collapsed",key="unique_key_1")
+        if raw_data:
+            st.session_state.render = True
+        else:
+            raw_data = 'Electric_Vehicle_Population_Data.csv'
+    with col2:
+        with st.container(border=True):
+            '''
+            If you haven't uploaded a file, use the provided sample data.
+            [Electric Vehicle Population Data](https://catalog.data.gov/dataset/electric-vehicle-population-data)
+            '''
+    data = pd.read_csv(raw_data)
+    header = ', '.join(data.columns.tolist())
+    return data, header
+
+####################
+
+st.header("Data Exploration with :blue[Snowflake Arctic]")
+
 user_query = get_query()
 if not user_query:
     st.info(
         "Upload a csv file and use llm to do data exploration. Type a query or pick one suggestions:"
     )
-col1,col2 = st.columns([1,1])
-with col1:
-    st.file_uploader("Upload CSV file", type="csv",label_visibility="collapsed")
-with col2:
-    with st.container(border=True):
-        '''
-        If you haven't uploaded a file, use the provided sample data.
-        [Electric Vehicle Population Data](https://catalog.data.gov/dataset/electric-vehicle-population-data)
-        '''
+    
+start_time = time.time()
+df,header = get_data()
+st.write(time.time()-start_time)
 
-data = pd.read_csv('Electric_Vehicle_Population_Data.csv')
+st.dataframe(df,use_container_width=True, hide_index=True)
 
-df = pd.DataFrame(data)
-header = ', '.join(data.columns.tolist())
-st.dataframe(df.head(10))
-
-render_suggestions(header)
 render_query()
+render_suggestions(header)
 
 if not user_query:
     st.stop()

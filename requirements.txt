@@ -3,6 +3,6 @@ replicate
 pandas
 plotly
 transformers
-
+seaborn
 
 

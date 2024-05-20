@@ -8,7 +8,9 @@ import replicate
 # from langchain_core.prompts import ChatPromptTemplate
 # from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 # from langchain_core.output_parsers import StrOutputParser
+import plotly
 import plotly.express as px
+import seaborn
 from transformers import AutoTokenizer
 
 with st.sidebar:
@@ -26,8 +28,6 @@ with st.sidebar:
     temperature = st.sidebar.slider('temperature', min_value=0.01, max_value=5.0, value=0.3, step=0.01)
     top_p = st.sidebar.slider('top_p', min_value=0.01, max_value=1.0, value=0.9, step=0.01)
 
-    for element in st.session_state:
-        st.write(f"{element}: {st.session_state[element]}")
 
 def get_tokenizer():
     return AutoTokenizer.from_pretrained(
@@ -59,7 +59,7 @@ def get_response(prompt):
 def get_suggestions(header):
     prompt = f'''
             Generate 3 prompts for creating data visualization code based on the data schema: {header}. 
-            Only return a Python String list of generated prompts as the following format: ['prompt1', 'prompt2']. 
+            Only return a Python String list of generated prompts as the following format: ['prompt1', 'prompt2', 'prompt3']. 
             The space betwen each element of list shuld be one.
             '''
     suggestions = ''
@@ -87,7 +87,7 @@ def render_suggestions(header):
     else:
         prompts = st.session_state.prompts
 
-    with st.container(border=True):
+    with st.status("Rendering suggestions...", expanded=True) as status:
         "#### Suggestions by Snowflake Arctic 💡"
 
         # columns = st.columns(3)
@@ -97,6 +97,7 @@ def render_suggestions(header):
     
         for i in range(3):
             st.button(prompts[i],on_click=set_query, args=[prompts[i]], key=f"prompts_{i}", use_container_width=True)
+            status.update(label="Complete!", state="complete", expanded=True)
         if st.button("Refresh suggestions"):
             st.session_state.render = True
             st.rerun() 
@@ -135,7 +136,7 @@ def generate_visualization_code(query, header):
                 <<<
                 import streamlit as st
                 import pandas as pd
-                import plotly.express as px
+                import plotly
 
                 # df is the dataframe,run operations on it
                 >>>
@@ -143,7 +144,7 @@ def generate_visualization_code(query, header):
                 the schema of df is as follows, please use the exact column names to refer to the data:
                {header}
                 
-                use streamlit and plotly to visualize the data based on this insight:
+                use streamlit and plotly to visualize the data based on this insigh, don't use "fig.show()":
                 {query}
 
                 only return the code I need to add upon my code, and use the variable df to refer to the dataframe
@@ -157,19 +158,20 @@ def generate_visualization_code(query, header):
 @st.cache_data(experimental_allow_widgets = True)
 def get_data():
     # st.cache_data.clear()
-    col1,col2 = st.columns([1,1])
+    col1,col2 = st.columns([1.1,1])
     with col1:
         raw_data = st.file_uploader("Upload CSV file", type="csv",label_visibility="collapsed",key="unique_key_1")
-        if raw_data:
-            st.session_state.render = True
-        else:
-            raw_data = 'Electric_Vehicle_Population_Data.csv'
+        '''
+        [Click here](https://github.com/laxmimerit/All-CSV-ML-Data-Files-Download/tree/master) to view more datasets.
+        '''
+        # Using a [NBA dataset](https://github.com/laxmimerit/All-CSV-ML-Data-Files-Download/blob/master/nba.csv) as default.
     with col2:
-        with st.container(border=True):
-            '''
-            If you haven't uploaded a file, use the provided sample data.
-            [Electric Vehicle Population Data](https://catalog.data.gov/dataset/electric-vehicle-population-data)
-            '''
+        # with st.container(border=True):
+        default_data = st.radio("Select a dataset", ["nba.csv", "snowflake.csv", "titanic.csv"],index=0, key="unique_key_2")
+        if raw_data is None:
+            raw_data = default_data
+    
+    st.session_state.render = True  
     data = pd.read_csv(raw_data)
     header = ', '.join(data.columns.tolist())
     return data, header
@@ -184,28 +186,32 @@ if not user_query:
         "Upload a csv file and use llm to do data exploration. Type a query or pick one suggestions:"
     )
     
-start_time = time.time()
+# start_time = time.time()
 df,header = get_data()
-st.write(time.time()-start_time)
+# st.write(time.time()-start_time)
 
-st.dataframe(df,use_container_width=True, hide_index=True)
+st.dataframe(df,use_container_width=True, hide_index=True, height=248)
 
-render_query()
 render_suggestions(header)
+render_query()
+
+# with st.sidebar:
+#     for element in st.session_state:
+#         st.write(f"{element}: {st.session_state[element]}")
 
 if not user_query:
     st.stop()
 
-viz_code = generate_visualization_code(user_query, header)
-print(viz_code)
+code_box = st.container().empty()
+with code_box.status("fetching visualization code...", expanded=False):
+    viz_code = generate_visualization_code(user_query, header)
+    # print(viz_code)
+    start = viz_code.find("python") + len("python")
+    end = viz_code.find("```", start)
+    extracted_code = viz_code[start:end].strip()
+    f"{viz_code}"
 
-start = viz_code.find("python") + len("python")
-end = viz_code.find("```", start)
 
-extracted_code = viz_code[start:end].strip()
-
-f"{viz_code}"
-
-llm_code = f"{extracted_code}"
-llm_code = llm_code.strip('```python').strip('```').strip()
+llm_code = extracted_code.strip('```python').strip('```').strip()
 exec(llm_code)
+

@@ -183,7 +183,7 @@ st.header("Data Exploration with :blue[Snowflake Arctic]")
 user_query = get_query()
 if not user_query:
     st.info(
-        "Upload a csv file and use llm to do data exploration. Type a query or pick one suggestions:"
+        "Upload a csv file and use llm to do data exploration. Type a query or pick one from suggestions:"
     )
     
 # start_time = time.time()
